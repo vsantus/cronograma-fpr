@@ -9,7 +9,7 @@ import type { Member } from '@/src/types/member';
 import { hasDuplicateMemberName, isValidMemberName, normalizeMemberName } from '@/src/utils/memberName';
 
 export default function MembersScreen() {
-  const { addMember, members, removeMember, storageError, updateMember } = useTrash();
+  const { addMember, forgottenMemberId, members, removeMember, storageError, updateMember } = useTrash();
   const [isListOpen, setIsListOpen] = useState(true);
   const [memberName, setMemberName] = useState('');
   const [editingMemberId, setEditingMemberId] = useState<string>();
@@ -113,7 +113,12 @@ export default function MembersScreen() {
             <Text style={styles.accordionIcon}>{isListOpen ? 'Fechar' : 'Abrir'}</Text>
           </Pressable>
           {isListOpen ? (
-            <MemberList members={members} onEditMember={handleEditMember} onRemoveMember={handleRemoveMember} />
+            <MemberList
+              forgottenMemberId={forgottenMemberId}
+              members={members}
+              onEditMember={handleEditMember}
+              onRemoveMember={handleRemoveMember}
+            />
           ) : null}
         </View>
 

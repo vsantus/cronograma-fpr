@@ -15,6 +15,7 @@ type TodayResponsibility = {
 
 type TrashContextValue = {
   addMember: (member: Member) => void;
+  forgottenMemberId?: string;
   members: Member[];
   removeMember: (memberId: string) => void;
   storageError?: string;
@@ -38,6 +39,7 @@ export function TrashProvider({ children }: PropsWithChildren) {
 
   const sortedMembers = useMemo(() => sortMembersByName(state.members), [state.members]);
   const today = useMemo(() => getTodayResponsibility(state, sortedMembers), [sortedMembers, state]);
+  const forgottenMemberId = useMemo(() => getForgottenMemberId(state), [state]);
 
   useEffect(() => {
     async function loadState() {
@@ -158,6 +160,7 @@ export function TrashProvider({ children }: PropsWithChildren) {
     <TrashContext.Provider
       value={{
         addMember,
+        forgottenMemberId,
         members: state.members,
         removeMember,
         storageError,
@@ -266,4 +269,14 @@ function normalizeState(state: TrashAppState): TrashAppState {
     members: state.members,
     records: state.records ?? {},
   };
+}
+
+function getForgottenMemberId(state: TrashAppState) {
+  const dateKey = getDateKey();
+
+  if (!state.forcedResponsibility || state.forcedResponsibility.untilDate < dateKey) {
+    return undefined;
+  }
+
+  return state.forcedResponsibility.memberId;
 }

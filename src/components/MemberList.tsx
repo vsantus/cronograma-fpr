@@ -4,12 +4,13 @@ import type { Member } from '@/src/types/member';
 import { sortMembersByName } from '@/src/utils/memberName';
 
 type MemberListProps = {
+  forgottenMemberId?: string;
   members: Member[];
   onEditMember: (member: Member) => void;
   onRemoveMember: (member: Member) => void;
 };
 
-export function MemberList({ members, onEditMember, onRemoveMember }: MemberListProps) {
+export function MemberList({ forgottenMemberId, members, onEditMember, onRemoveMember }: MemberListProps) {
   const sortedMembers = sortMembersByName(members);
 
   return (
@@ -30,7 +31,10 @@ export function MemberList({ members, onEditMember, onRemoveMember }: MemberList
             <View key={member.id} style={styles.item}>
               <View style={styles.memberInfo}>
                 <Text style={styles.avatar}>{member.name.charAt(0).toLocaleUpperCase('pt-BR')}</Text>
-                <Text style={styles.name}>{member.name}</Text>
+                <View style={styles.nameContainer}>
+                  <Text style={styles.name}>{member.name}</Text>
+                  {forgottenMemberId === member.id ? <View style={styles.forgottenDot} /> : null}
+                </View>
               </View>
 
               <View style={styles.actions}>
@@ -128,10 +132,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#e0f2fe',
   },
   name: {
-    flex: 1,
     fontSize: 16,
     fontWeight: '600',
     color: '#111827',
+  },
+  nameContainer: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  forgottenDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#dc2626',
   },
   actions: {
     flexDirection: 'row',
