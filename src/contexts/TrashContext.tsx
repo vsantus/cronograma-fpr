@@ -2,13 +2,19 @@ import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useSt
 
 import { loadTrashState, saveTrashState } from '@/src/services/trashStorage';
 import type { Member } from '@/src/types/member';
-import type { DailyTrashRecord, TrashAppState } from '@/src/types/trash';
+import type { DailyTrashRecord, ForcedResponsibility, TrashAppState } from '@/src/types/trash';
 import { addBusinessDays, getDateKey, isBusinessDay } from '@/src/utils/businessDay';
 import { sortMembersByName } from '@/src/utils/memberName';
 
 type TodayResponsibility = {
   dateKey: string;
+  debtStatus?: {
+    currentDay: number;
+    isLastDay: boolean;
+    totalDays: number;
+  };
   isBusinessDay: boolean;
+  nextResponsible?: Member;
   record?: DailyTrashRecord;
   responsible?: Member;
 };
@@ -104,19 +110,40 @@ export function TrashProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    const shouldKeepForcedResponsibility =
-      state.forcedResponsibility?.memberId === today.responsible.id &&
-      state.forcedResponsibility.untilDate > today.dateKey;
+    if (today.record?.action === 'completed') {
+      return;
+    }
+
+    const forcedResponsibility = getActiveForcedResponsibility(state, today.responsible.id);
+    const totalDebtDays = forcedResponsibility ? getForcedTotalDays(forcedResponsibility) : 0;
+    const completedDebtDays = forcedResponsibility ? getForcedCompletedDays(forcedResponsibility) + 1 : 0;
+    const shouldKeepForcedResponsibility = Boolean(
+      forcedResponsibility && completedDebtDays < totalDebtDays
+    );
 
     commitState({
       ...state,
       currentMemberId: shouldKeepForcedResponsibility
         ? today.responsible.id
         : getNextMemberId(sortedMembers, today.responsible.id),
-      forcedResponsibility: shouldKeepForcedResponsibility ? state.forcedResponsibility : undefined,
+      forcedResponsibility:
+        shouldKeepForcedResponsibility && forcedResponsibility
+          ? {
+              ...forcedResponsibility,
+              completedDays: completedDebtDays,
+              totalDays: totalDebtDays,
+            }
+          : undefined,
       records: {
         ...state.records,
-        [today.dateKey]: createRecord('completed', today.dateKey, today.responsible),
+        [today.dateKey]: createRecord('completed', today.dateKey, today.responsible, {
+          debtProgress: forcedResponsibility
+            ? {
+                currentDay: completedDebtDays,
+                totalDays: totalDebtDays,
+              }
+            : undefined,
+        }),
       },
     });
   }
@@ -146,7 +173,9 @@ export function TrashProvider({ children }: PropsWithChildren) {
       ...state,
       currentMemberId: today.responsible.id,
       forcedResponsibility: {
+        completedDays: 0,
         memberId: today.responsible.id,
+        totalDays: 2,
         untilDate: getDateKey(addBusinessDays(new Date(), 2)),
       },
       records: {
@@ -199,27 +228,37 @@ function getTodayResponsibility(state: TrashAppState, sortedMembers: Member[]): 
   }
 
   if (record?.action === 'completed') {
+    const responsible = findMemberById(sortedMembers, record.memberId);
+    const debtStatus = responsible ? getDebtStatus(state, responsible.id, dateKey, record) : undefined;
+
     return {
       dateKey,
+      debtStatus,
       isBusinessDay: true,
+      nextResponsible:
+        responsible && debtStatus && !debtStatus.isLastDay ? responsible : getNextResponsible(sortedMembers, responsible),
       record,
-      responsible: findMemberById(sortedMembers, record.memberId),
+      responsible,
     };
   }
 
   const forcedMember = getForcedMember(state, sortedMembers, dateKey);
   const responsible = forcedMember ?? getCurrentMember(state, sortedMembers);
+  const debtStatus = responsible ? getDebtStatus(state, responsible.id, dateKey, record) : undefined;
 
   return {
     dateKey,
+    debtStatus,
     isBusinessDay: true,
+    nextResponsible:
+      responsible && debtStatus && !debtStatus.isLastDay ? responsible : getNextResponsible(sortedMembers, responsible),
     record,
     responsible,
   };
 }
 
-function getForcedMember(state: TrashAppState, sortedMembers: Member[], dateKey: string) {
-  if (!state.forcedResponsibility || state.forcedResponsibility.untilDate < dateKey) {
+function getForcedMember(state: TrashAppState, sortedMembers: Member[], _dateKey: string) {
+  if (!state.forcedResponsibility) {
     return undefined;
   }
 
@@ -235,6 +274,10 @@ function findMemberById(members: Member[], memberId?: string) {
 }
 
 function getNextMemberId(members: Member[], currentMemberId: string) {
+  return getNextMember(members, currentMemberId)?.id;
+}
+
+function getNextMember(members: Member[], currentMemberId: string) {
   if (members.length === 0) {
     return undefined;
   }
@@ -242,17 +285,76 @@ function getNextMemberId(members: Member[], currentMemberId: string) {
   const currentIndex = members.findIndex((member) => member.id === currentMemberId);
   const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % members.length : 0;
 
-  return members[nextIndex].id;
+  return members[nextIndex];
+}
+
+function getNextResponsible(members: Member[], responsible?: Member) {
+  return responsible ? getNextMember(members, responsible.id) : undefined;
+}
+
+function getDebtStatus(
+  state: TrashAppState,
+  memberId: string,
+  dateKey: string,
+  record?: DailyTrashRecord
+): TodayResponsibility['debtStatus'] {
+  if (record?.debtProgress) {
+    return {
+      currentDay: record.debtProgress.currentDay,
+      isLastDay: record.debtProgress.currentDay >= record.debtProgress.totalDays,
+      totalDays: record.debtProgress.totalDays,
+    };
+  }
+
+  if (
+    !state.forcedResponsibility ||
+    state.forcedResponsibility.memberId !== memberId ||
+    record?.action === 'forgot'
+  ) {
+    return undefined;
+  }
+
+  const totalDays = getForcedTotalDays(state.forcedResponsibility);
+  const completedDays = getForcedCompletedDays(state.forcedResponsibility);
+  const currentDay = Math.min(completedDays + 1, totalDays);
+
+  return {
+    currentDay,
+    isLastDay: currentDay >= totalDays,
+    totalDays,
+  };
+}
+
+function getActiveForcedResponsibility(state: TrashAppState, memberId: string) {
+  if (!state.forcedResponsibility || state.forcedResponsibility.memberId !== memberId) {
+    return undefined;
+  }
+
+  return state.forcedResponsibility;
+}
+
+function getForcedCompletedDays(forcedResponsibility: ForcedResponsibility) {
+  return forcedResponsibility.completedDays ?? 0;
+}
+
+function getForcedTotalDays(forcedResponsibility: ForcedResponsibility) {
+  return forcedResponsibility.totalDays ?? 2;
 }
 
 function getFirstMemberId(members: Member[]) {
   return sortMembersByName(members)[0]?.id;
 }
 
-function createRecord(action: DailyTrashRecord['action'], date: string, member: Member): DailyTrashRecord {
+function createRecord(
+  action: DailyTrashRecord['action'],
+  date: string,
+  member: Member,
+  options?: Pick<DailyTrashRecord, 'debtProgress'>
+): DailyTrashRecord {
   return {
     action,
     date,
+    debtProgress: options?.debtProgress,
     memberId: member.id,
     memberName: member.name,
   };
@@ -265,18 +367,28 @@ function normalizeState(state: TrashAppState): TrashAppState {
 
   return {
     currentMemberId,
-    forcedResponsibility: state.forcedResponsibility,
+    forcedResponsibility: normalizeForcedResponsibility(state.forcedResponsibility),
     members: state.members,
     records: state.records ?? {},
   };
 }
 
 function getForgottenMemberId(state: TrashAppState) {
-  const dateKey = getDateKey();
-
-  if (!state.forcedResponsibility || state.forcedResponsibility.untilDate < dateKey) {
+  if (!state.forcedResponsibility) {
     return undefined;
   }
 
   return state.forcedResponsibility.memberId;
+}
+
+function normalizeForcedResponsibility(forcedResponsibility?: ForcedResponsibility) {
+  if (!forcedResponsibility) {
+    return undefined;
+  }
+
+  return {
+    ...forcedResponsibility,
+    completedDays: getForcedCompletedDays(forcedResponsibility),
+    totalDays: getForcedTotalDays(forcedResponsibility),
+  };
 }

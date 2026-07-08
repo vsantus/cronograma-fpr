@@ -1,5 +1,8 @@
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
+import type { AppTheme } from '@/src/theme/colors';
+import { useAppTheme } from '@/src/theme/ThemeContext';
+
 type MemberFormProps = {
   name: string;
   error?: string;
@@ -17,6 +20,9 @@ export function MemberForm({
   onChangeName,
   onSubmit,
 }: MemberFormProps) {
+  const { theme } = useAppTheme();
+  const styles = createStyles(theme);
+
   return (
     <View style={styles.container}>
       <Text style={styles.label}>Nome do integrante</Text>
@@ -25,6 +31,7 @@ export function MemberForm({
         onChangeText={onChangeName}
         onSubmitEditing={onSubmit}
         placeholder="Digite o nome"
+        placeholderTextColor={theme.textSubtle}
         returnKeyType="done"
         style={[styles.input, error ? styles.inputError : null]}
       />
@@ -43,31 +50,32 @@ export function MemberForm({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
   container: {
     gap: 8,
   },
   label: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
+    color: theme.textMuted,
   },
   input: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderColor: theme.borderStrong,
     borderRadius: 8,
     paddingHorizontal: 12,
     fontSize: 16,
-    color: '#111827',
-    backgroundColor: '#ffffff',
+    color: theme.text,
+    backgroundColor: theme.surface,
   },
   inputError: {
-    borderColor: '#dc2626',
+    borderColor: theme.danger,
   },
   error: {
     fontSize: 13,
-    color: '#dc2626',
+    color: theme.danger,
   },
   actions: {
     flexDirection: 'row',
@@ -81,7 +89,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
-    backgroundColor: '#2563eb',
+    backgroundColor: theme.primary,
   },
   buttonText: {
     fontSize: 16,
@@ -96,12 +104,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    backgroundColor: '#ffffff',
+    borderColor: theme.borderStrong,
+    backgroundColor: theme.surface,
   },
   secondaryButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#374151',
+    color: theme.textMuted,
   },
 });

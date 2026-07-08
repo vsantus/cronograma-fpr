@@ -1,5 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import type { AppTheme } from '@/src/theme/colors';
+import { useAppTheme } from '@/src/theme/ThemeContext';
 import type { Member } from '@/src/types/member';
 import { sortMembersByName } from '@/src/utils/memberName';
 
@@ -11,12 +13,13 @@ type MemberListProps = {
 };
 
 export function MemberList({ forgottenMemberId, members, onEditMember, onRemoveMember }: MemberListProps) {
+  const { theme } = useAppTheme();
+  const styles = createStyles(theme);
   const sortedMembers = sortMembersByName(members);
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Integrantes</Text>
         <Text style={styles.count}>{sortedMembers.length}</Text>
       </View>
 
@@ -53,7 +56,8 @@ export function MemberList({ forgottenMemberId, members, onEditMember, onRemoveM
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
   container: {
     gap: 12,
   },
@@ -66,7 +70,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#111827',
+    color: theme.text,
   },
   count: {
     minWidth: 32,
@@ -76,26 +80,26 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     fontSize: 14,
     fontWeight: '700',
-    color: '#374151',
+    color: theme.textMuted,
     textAlign: 'center',
-    backgroundColor: '#f3f4f6',
+    backgroundColor: theme.surfaceMuted,
   },
   emptyState: {
     gap: 4,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: theme.border,
     padding: 16,
-    backgroundColor: '#f9fafb',
+    backgroundColor: theme.surfaceMuted,
   },
   emptyTitle: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#111827',
+    color: theme.text,
   },
   emptyDescription: {
     fontSize: 14,
-    color: '#6b7280',
+    color: theme.textSubtle,
   },
   list: {
     gap: 8,
@@ -108,9 +112,9 @@ const styles = StyleSheet.create({
     gap: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: theme.border,
     padding: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.surface,
   },
   memberInfo: {
     flex: 1,
@@ -127,14 +131,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     lineHeight: 32,
-    color: '#1f2937',
+    color: theme.avatarText,
     textAlign: 'center',
-    backgroundColor: '#e0f2fe',
+    backgroundColor: theme.avatarBg,
   },
   name: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#111827',
+    color: theme.text,
   },
   nameContainer: {
     flex: 1,
@@ -147,7 +151,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#dc2626',
+    backgroundColor: theme.danger,
   },
   actions: {
     flexDirection: 'row',
@@ -161,12 +165,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     paddingHorizontal: 12,
-    backgroundColor: '#eef2ff',
+    backgroundColor: theme.primarySoft,
   },
   editButtonText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#3730a3',
+    color: theme.primaryText,
   },
   removeButton: {
     width: 92,
@@ -175,11 +179,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     paddingHorizontal: 12,
-    backgroundColor: '#fef2f2',
+    backgroundColor: theme.dangerSoft,
   },
   removeButtonText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#b91c1c',
+    color: theme.danger,
   },
 });

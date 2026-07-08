@@ -5,11 +5,15 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { MemberForm } from '@/src/components/MemberForm';
 import { MemberList } from '@/src/components/MemberList';
 import { useTrash } from '@/src/contexts/TrashContext';
+import type { AppTheme } from '@/src/theme/colors';
+import { useAppTheme } from '@/src/theme/ThemeContext';
 import type { Member } from '@/src/types/member';
 import { hasDuplicateMemberName, isValidMemberName, normalizeMemberName } from '@/src/utils/memberName';
 
 export default function MembersScreen() {
   const { addMember, forgottenMemberId, members, removeMember, storageError, updateMember } = useTrash();
+  const { theme } = useAppTheme();
+  const styles = createStyles(theme);
   const [isListOpen, setIsListOpen] = useState(true);
   const [memberName, setMemberName] = useState('');
   const [editingMemberId, setEditingMemberId] = useState<string>();
@@ -124,7 +128,7 @@ export default function MembersScreen() {
 
         <Link href="/" asChild>
           <Pressable style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>Voltar para hoje</Text>
+            <Text style={styles.secondaryButtonText}>Voltar para Home</Text>
           </Pressable>
         </Link>
       </View>
@@ -132,13 +136,14 @@ export default function MembersScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (theme: AppTheme) =>
+  StyleSheet.create({
   container: {
     flexGrow: 1,
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 24,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: theme.background,
   },
   content: {
     width: '100%',
@@ -151,25 +156,25 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 30,
     fontWeight: '800',
-    color: '#111827',
+    color: theme.text,
   },
   subtitle: {
     fontSize: 16,
     lineHeight: 22,
-    color: '#4b5563',
+    color: theme.textMuted,
   },
   section: {
     gap: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: theme.border,
     padding: 16,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.surface,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
-    color: '#111827',
+    color: theme.text,
   },
   accordionHeader: {
     minHeight: 40,
@@ -181,7 +186,7 @@ const styles = StyleSheet.create({
   accordionIcon: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#2563eb',
+    color: theme.primary,
   },
   secondaryButton: {
     minHeight: 48,
@@ -189,30 +194,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    backgroundColor: '#ffffff',
+    borderColor: theme.borderStrong,
+    backgroundColor: theme.surface,
   },
   secondaryButtonText: {
     fontSize: 16,
     fontWeight: '800',
-    color: '#374151',
+    color: theme.textMuted,
   },
   errorBox: {
     gap: 4,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#fecaca',
+    borderColor: theme.dangerBorder,
     padding: 12,
-    backgroundColor: '#fef2f2',
+    backgroundColor: theme.dangerSoft,
   },
   errorTitle: {
     fontSize: 15,
     fontWeight: '800',
-    color: '#991b1b',
+    color: theme.dangerStrong,
   },
   errorText: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#7f1d1d',
+    color: theme.dangerStrong,
   },
 });
