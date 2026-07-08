@@ -45,7 +45,7 @@ function ThemedRootLayout() {
           ),
         }}>
         <Stack.Screen name="index" options={{ title: 'FPR', headerBackVisible: false }} />
-        <Stack.Screen name="integrantes" options={{ title: 'Configurações', headerBackVisible: false }} />
+        <Stack.Screen name="integrantes" options={{ title: 'Configurações' }} />
       </Stack>
       <StatusBar style="auto" />
     </TrashProvider>

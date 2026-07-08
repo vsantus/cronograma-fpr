@@ -1,6 +1,8 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 
+import { fetchMembersFromSheet, isMembersApiConfigured } from '@/src/services/memberApi';
 import { loadTrashState, saveTrashState } from '@/src/services/trashStorage';
+import { scheduleTrashReminders } from '@/src/services/trashNotifications';
 import type { Member } from '@/src/types/member';
 import type { DailyTrashRecord, ForcedResponsibility, TrashAppState } from '@/src/types/trash';
 import { addBusinessDays, getDateKey, isBusinessDay } from '@/src/utils/businessDay';
@@ -20,16 +22,15 @@ type TodayResponsibility = {
 };
 
 type TrashContextValue = {
-  addMember: (member: Member) => void;
   forgottenMemberId?: string;
+  isMembersLoading: boolean;
   members: Member[];
-  removeMember: (memberId: string) => void;
+  refreshMembers: () => Promise<void>;
   storageError?: string;
   today: TodayResponsibility;
   markForgot: () => void;
   markMissed: () => void;
   markTookOutTrash: () => void;
-  updateMember: (member: Member) => void;
 };
 
 const EMPTY_STATE: TrashAppState = {
@@ -41,6 +42,7 @@ const TrashContext = createContext<TrashContextValue | undefined>(undefined);
 
 export function TrashProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<TrashAppState>(EMPTY_STATE);
+  const [isMembersLoading, setIsMembersLoading] = useState(false);
   const [storageError, setStorageError] = useState<string>();
 
   const sortedMembers = useMemo(() => sortMembersByName(state.members), [state.members]);
@@ -51,7 +53,14 @@ export function TrashProvider({ children }: PropsWithChildren) {
     async function loadState() {
       try {
         const storedState = await loadTrashState();
-        setState(normalizeState(storedState));
+        const normalizedState = normalizeState(storedState);
+        setState(normalizedState);
+
+        if (isMembersApiConfigured()) {
+          await syncMembersFromSheet(normalizedState);
+        } else {
+          await scheduleRemindersForState(normalizedState);
+        }
       } catch {
         setState(EMPTY_STATE);
         setStorageError('Nao foi possivel carregar os dados salvos. Voce pode continuar usando o app.');
@@ -67,42 +76,11 @@ export function TrashProvider({ children }: PropsWithChildren) {
 
     try {
       await saveTrashState(normalizedState);
+      await scheduleRemindersForState(normalizedState);
       setStorageError(undefined);
     } catch {
       setStorageError('Nao foi possivel salvar os dados agora. Tente novamente em instantes.');
     }
-  }
-
-  function addMember(member: Member) {
-    const nextMembers = [...state.members, member];
-    const nextState = {
-      ...state,
-      currentMemberId: state.currentMemberId ?? member.id,
-      members: nextMembers,
-    };
-
-    commitState(nextState);
-  }
-
-  function updateMember(updatedMember: Member) {
-    commitState({
-      ...state,
-      members: state.members.map((member) => (member.id === updatedMember.id ? updatedMember : member)),
-    });
-  }
-
-  function removeMember(memberId: string) {
-    const nextMembers = state.members.filter((member) => member.id !== memberId);
-    const nextCurrentMemberId = state.currentMemberId === memberId ? getFirstMemberId(nextMembers) : state.currentMemberId;
-    const nextForcedResponsibility =
-      state.forcedResponsibility?.memberId === memberId ? undefined : state.forcedResponsibility;
-
-    commitState({
-      ...state,
-      currentMemberId: nextCurrentMemberId,
-      forcedResponsibility: nextForcedResponsibility,
-      members: nextMembers,
-    });
   }
 
   function markTookOutTrash() {
@@ -185,23 +163,60 @@ export function TrashProvider({ children }: PropsWithChildren) {
     });
   }
 
+  async function refreshMembers() {
+    await syncMembersFromSheet(state);
+  }
+
+  async function syncMembersFromSheet(baseState: TrashAppState) {
+    if (!isMembersApiConfigured()) {
+      setStorageError('Informe a URL do Web App do Apps Script para sincronizar a planilha.');
+      return;
+    }
+
+    setIsMembersLoading(true);
+
+    try {
+      const members = await fetchMembersFromSheet();
+      const nextState = normalizeState({
+        ...baseState,
+        members,
+      });
+
+      setState(nextState);
+      await saveTrashState(nextState);
+      await scheduleRemindersForState(nextState);
+      setStorageError(undefined);
+    } catch {
+      setStorageError('Nao foi possivel atualizar os funcionarios da planilha. Usando a ultima lista salva.');
+    } finally {
+      setIsMembersLoading(false);
+    }
+  }
+
   return (
     <TrashContext.Provider
       value={{
-        addMember,
         forgottenMemberId,
+        isMembersLoading,
         members: state.members,
-        removeMember,
+        refreshMembers,
         storageError,
         today,
         markForgot,
         markMissed,
         markTookOutTrash,
-        updateMember,
       }}>
       {children}
     </TrashContext.Provider>
   );
+}
+
+async function scheduleRemindersForState(state: TrashAppState) {
+  await scheduleTrashReminders({
+    currentMemberId: state.currentMemberId,
+    forcedResponsibility: state.forcedResponsibility,
+    members: state.members,
+  });
 }
 
 export function useTrash() {
@@ -364,10 +379,13 @@ function normalizeState(state: TrashAppState): TrashAppState {
   const currentMemberId = state.members.some((member) => member.id === state.currentMemberId)
     ? state.currentMemberId
     : getFirstMemberId(state.members);
+  const forcedResponsibility = state.members.some((member) => member.id === state.forcedResponsibility?.memberId)
+    ? normalizeForcedResponsibility(state.forcedResponsibility)
+    : undefined;
 
   return {
     currentMemberId,
-    forcedResponsibility: normalizeForcedResponsibility(state.forcedResponsibility),
+    forcedResponsibility,
     members: state.members,
     records: state.records ?? {},
   };

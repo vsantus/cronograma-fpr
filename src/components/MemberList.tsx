@@ -8,8 +8,8 @@ import { sortMembersByName } from '@/src/utils/memberName';
 type MemberListProps = {
   forgottenMemberId?: string;
   members: Member[];
-  onEditMember: (member: Member) => void;
-  onRemoveMember: (member: Member) => void;
+  onEditMember?: (member: Member) => void;
+  onRemoveMember?: (member: Member) => void;
 };
 
 export function MemberList({ forgottenMemberId, members, onEditMember, onRemoveMember }: MemberListProps) {
@@ -40,14 +40,20 @@ export function MemberList({ forgottenMemberId, members, onEditMember, onRemoveM
                 </View>
               </View>
 
-              <View style={styles.actions}>
-                <Pressable style={styles.editButton} onPress={() => onEditMember(member)}>
-                  <Text style={styles.editButtonText}>Editar</Text>
-                </Pressable>
-                <Pressable style={styles.removeButton} onPress={() => onRemoveMember(member)}>
-                  <Text style={styles.removeButtonText}>Remover</Text>
-                </Pressable>
-              </View>
+              {onEditMember || onRemoveMember ? (
+                <View style={styles.actions}>
+                  {onEditMember ? (
+                    <Pressable style={styles.editButton} onPress={() => onEditMember(member)}>
+                      <Text style={styles.editButtonText}>Editar</Text>
+                    </Pressable>
+                  ) : null}
+                  {onRemoveMember ? (
+                    <Pressable style={styles.removeButton} onPress={() => onRemoveMember(member)}>
+                      <Text style={styles.removeButtonText}>Remover</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           ))}
         </View>
