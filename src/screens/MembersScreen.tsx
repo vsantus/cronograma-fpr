@@ -1,17 +1,95 @@
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { MemberForm } from '@/src/components/MemberForm';
 import { MemberList } from '@/src/components/MemberList';
 import { useTrash } from '@/src/contexts/TrashContext';
 import type { AppTheme } from '@/src/theme/colors';
 import { useAppTheme } from '@/src/theme/ThemeContext';
+import type { Member } from '@/src/types/member';
+import { hasDuplicateMemberName, isValidMemberName, normalizeMemberName } from '@/src/utils/memberName';
 
 export default function MembersScreen() {
-  const { forgottenMemberId, isMembersLoading, members, refreshMembers, storageError } = useTrash();
+  const {
+    addMember,
+    forgottenMemberId,
+    isMembersLoading,
+    members,
+    refreshMembers,
+    removeMember,
+    storageError,
+    updateMember,
+  } = useTrash();
   const { theme } = useAppTheme();
   const styles = createStyles(theme);
+  const [editingMemberId, setEditingMemberId] = useState<string>();
   const [isListOpen, setIsListOpen] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [memberName, setMemberName] = useState('');
+  const [error, setError] = useState<string>();
+
+  async function handleSubmitMember() {
+    if (!isValidMemberName(memberName)) {
+      setError('Informe o nome do integrante.');
+      return;
+    }
+
+    const normalizedName = normalizeMemberName(memberName);
+
+    if (hasDuplicateMemberName(members, normalizedName, editingMemberId)) {
+      setError('Este integrante ja foi adicionado.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const wasSaved = editingMemberId
+      ? await updateMember({
+          id: editingMemberId,
+          name: normalizedName,
+        })
+      : await addMember({
+          id: `${Date.now()}-${normalizedName}`,
+          name: normalizedName,
+        });
+    setIsSubmitting(false);
+
+    if (wasSaved) {
+      resetForm();
+    }
+  }
+
+  function handleEditMember(member: Member) {
+    setEditingMemberId(member.id);
+    setMemberName(member.name);
+    setError(undefined);
+  }
+
+  function handleRemoveMember(member: Member) {
+    Alert.alert(`Remover ${member.name}?`, 'Este funcionario deixara de participar da escala.', [
+      {
+        text: 'Cancelar',
+        style: 'cancel',
+      },
+      {
+        text: 'Confirmar',
+        style: 'destructive',
+        onPress: async () => {
+          const wasRemoved = await removeMember(member.id);
+
+          if (wasRemoved && editingMemberId === member.id) {
+            resetForm();
+          }
+        },
+      },
+    ]);
+  }
+
+  function resetForm() {
+    setEditingMemberId(undefined);
+    setMemberName('');
+    setError(undefined);
+  }
 
   return (
     <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
@@ -29,11 +107,36 @@ export default function MembersScreen() {
         ) : null}
 
         <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Cadastro</Text>
+          <MemberForm
+            name={memberName}
+            error={error}
+            disabled={isSubmitting}
+            submitLabel={isSubmitting ? 'Salvando...' : editingMemberId ? 'Salvar edicao' : 'Adicionar'}
+            onCancel={editingMemberId ? resetForm : undefined}
+            onChangeName={(name) => {
+              setMemberName(name);
+              if (error) {
+                setError(undefined);
+              }
+            }}
+            onSubmit={handleSubmitMember}
+          />
+        </View>
+
+        <View style={styles.section}>
           <Pressable style={styles.accordionHeader} onPress={() => setIsListOpen((current) => !current)}>
             <Text style={styles.sectionTitle}>Funcionarios</Text>
             <Text style={styles.accordionIcon}>{isListOpen ? 'Fechar' : 'Abrir'}</Text>
           </Pressable>
-          {isListOpen ? <MemberList forgottenMemberId={forgottenMemberId} members={members} /> : null}
+          {isListOpen ? (
+            <MemberList
+              forgottenMemberId={forgottenMemberId}
+              members={members}
+              onEditMember={handleEditMember}
+              onRemoveMember={handleRemoveMember}
+            />
+          ) : null}
         </View>
 
         <Pressable

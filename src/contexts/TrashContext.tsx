@@ -1,6 +1,12 @@
 import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useState } from 'react';
 
-import { fetchMembersFromSheet, isMembersApiConfigured } from '@/src/services/memberApi';
+import {
+  addMemberToSheet,
+  fetchMembersFromSheet,
+  isMembersApiConfigured,
+  removeMemberFromSheet,
+  updateMemberInSheet,
+} from '@/src/services/memberApi';
 import { loadTrashState, saveTrashState } from '@/src/services/trashStorage';
 import { scheduleTrashReminders } from '@/src/services/trashNotifications';
 import type { Member } from '@/src/types/member';
@@ -22,15 +28,18 @@ type TodayResponsibility = {
 };
 
 type TrashContextValue = {
+  addMember: (member: Member) => Promise<boolean>;
   forgottenMemberId?: string;
   isMembersLoading: boolean;
   members: Member[];
   refreshMembers: () => Promise<void>;
+  removeMember: (memberId: string) => Promise<boolean>;
   storageError?: string;
   today: TodayResponsibility;
   markForgot: () => void;
   markMissed: () => void;
   markTookOutTrash: () => void;
+  updateMember: (member: Member) => Promise<boolean>;
 };
 
 const EMPTY_STATE: TrashAppState = {
@@ -81,6 +90,90 @@ export function TrashProvider({ children }: PropsWithChildren) {
     } catch {
       setStorageError('Nao foi possivel salvar os dados agora. Tente novamente em instantes.');
     }
+  }
+
+  async function addMember(member: Member) {
+    try {
+      if (isMembersApiConfigured()) {
+        const syncedMembers = await addMemberToSheet(member.name);
+        const nextState = normalizeState({
+          ...state,
+          currentMemberId: state.currentMemberId ?? member.id,
+          members: syncedMembers ?? [...state.members, member],
+        });
+
+        setState(nextState);
+        await saveTrashState(nextState);
+        await scheduleRemindersForState(nextState);
+        setStorageError(undefined);
+        return true;
+      }
+
+      const nextMembers = [...state.members, member];
+
+      await commitState({
+        ...state,
+        currentMemberId: state.currentMemberId ?? member.id,
+        members: nextMembers,
+      });
+      return true;
+    } catch (error) {
+      console.error('Erro ao salvar funcionario:', error);
+      setStorageError(`Nao foi possivel salvar o funcionario na planilha. ${getErrorMessage(error)}`);
+      return false;
+    }
+  }
+
+  async function updateMember(updatedMember: Member) {
+    try {
+      if (isMembersApiConfigured()) {
+        const syncedMembers = await updateMemberInSheet(updatedMember);
+        await replaceMembers(syncedMembers ?? updateMemberLocally(state.members, updatedMember));
+        return true;
+      }
+
+      await commitState({
+        ...state,
+        members: updateMemberLocally(state.members, updatedMember),
+      });
+      return true;
+    } catch (error) {
+      console.error('Erro ao editar funcionario:', error);
+      setStorageError(`Nao foi possivel editar o funcionario na planilha. ${getErrorMessage(error)}`);
+      return false;
+    }
+  }
+
+  async function removeMember(memberId: string) {
+    try {
+      if (isMembersApiConfigured()) {
+        const syncedMembers = await removeMemberFromSheet(memberId);
+        await replaceMembers(syncedMembers ?? removeMemberLocally(state.members, memberId));
+        return true;
+      }
+
+      await commitState({
+        ...state,
+        members: removeMemberLocally(state.members, memberId),
+      });
+      return true;
+    } catch (error) {
+      console.error('Erro ao remover funcionario:', error);
+      setStorageError(`Nao foi possivel remover o funcionario da planilha. ${getErrorMessage(error)}`);
+      return false;
+    }
+  }
+
+  async function replaceMembers(members: Member[]) {
+    const nextState = normalizeState({
+      ...state,
+      members,
+    });
+
+    setState(nextState);
+    await saveTrashState(nextState);
+    await scheduleRemindersForState(nextState);
+    setStorageError(undefined);
   }
 
   function markTookOutTrash() {
@@ -186,8 +279,9 @@ export function TrashProvider({ children }: PropsWithChildren) {
       await saveTrashState(nextState);
       await scheduleRemindersForState(nextState);
       setStorageError(undefined);
-    } catch {
-      setStorageError('Nao foi possivel atualizar os funcionarios da planilha. Usando a ultima lista salva.');
+    } catch (error) {
+      console.error('Erro ao atualizar funcionarios:', error);
+      setStorageError(`Nao foi possivel atualizar os funcionarios da planilha. ${getErrorMessage(error)}`);
     } finally {
       setIsMembersLoading(false);
     }
@@ -196,15 +290,18 @@ export function TrashProvider({ children }: PropsWithChildren) {
   return (
     <TrashContext.Provider
       value={{
+        addMember,
         forgottenMemberId,
         isMembersLoading,
         members: state.members,
         refreshMembers,
+        removeMember,
         storageError,
         today,
         markForgot,
         markMissed,
         markTookOutTrash,
+        updateMember,
       }}>
       {children}
     </TrashContext.Provider>
@@ -217,6 +314,18 @@ async function scheduleRemindersForState(state: TrashAppState) {
     forcedResponsibility: state.forcedResponsibility,
     members: state.members,
   });
+}
+
+function getErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Erro desconhecido.';
+}
+
+function updateMemberLocally(members: Member[], updatedMember: Member) {
+  return members.map((member) => (member.id === updatedMember.id ? updatedMember : member));
+}
+
+function removeMemberLocally(members: Member[], memberId: string) {
+  return members.filter((member) => member.id !== memberId);
 }
 
 export function useTrash() {

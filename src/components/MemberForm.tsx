@@ -4,6 +4,7 @@ import type { AppTheme } from '@/src/theme/colors';
 import { useAppTheme } from '@/src/theme/ThemeContext';
 
 type MemberFormProps = {
+  disabled?: boolean;
   name: string;
   error?: string;
   submitLabel?: string;
@@ -13,6 +14,7 @@ type MemberFormProps = {
 };
 
 export function MemberForm({
+  disabled,
   name,
   error,
   submitLabel = 'Adicionar',
@@ -29,15 +31,16 @@ export function MemberForm({
       <TextInput
         value={name}
         onChangeText={onChangeName}
-        onSubmitEditing={onSubmit}
+        editable={!disabled}
+        onSubmitEditing={disabled ? undefined : onSubmit}
         placeholder="Digite o nome"
         placeholderTextColor={theme.textSubtle}
         returnKeyType="done"
-        style={[styles.input, error ? styles.inputError : null]}
+        style={[styles.input, disabled ? styles.inputDisabled : null, error ? styles.inputError : null]}
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <View style={styles.actions}>
-        <Pressable style={styles.button} onPress={onSubmit}>
+        <Pressable disabled={disabled} style={[styles.button, disabled ? styles.buttonDisabled : null]} onPress={onSubmit}>
           <Text style={styles.buttonText}>{submitLabel}</Text>
         </Pressable>
         {onCancel ? (
@@ -73,6 +76,9 @@ const createStyles = (theme: AppTheme) =>
   inputError: {
     borderColor: theme.danger,
   },
+  inputDisabled: {
+    opacity: 0.65,
+  },
   error: {
     fontSize: 13,
     color: theme.danger,
@@ -90,6 +96,9 @@ const createStyles = (theme: AppTheme) =>
     justifyContent: 'center',
     borderRadius: 8,
     backgroundColor: theme.primary,
+  },
+  buttonDisabled: {
+    opacity: 0.65,
   },
   buttonText: {
     fontSize: 16,

@@ -9,8 +9,8 @@ import { sortMembersByName } from '@/src/utils/memberName';
 
 const NOTIFICATION_CHANNEL_ID = 'trash-reminders';
 const NOTIFICATION_IDS_STORAGE_KEY = '@cronogramafpr:trash-notification-ids';
-const NOTIFICATION_HOUR = 16;
-const NOTIFICATION_MINUTE = 0;
+const NOTIFICATION_HOUR = 13;
+const NOTIFICATION_MINUTE = 50;
 const SCHEDULED_BUSINESS_DAYS = 10;
 
 Notifications.setNotificationHandler({
