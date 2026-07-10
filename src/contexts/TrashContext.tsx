@@ -2,16 +2,15 @@ import { createContext, PropsWithChildren, useContext, useEffect, useMemo, useSt
 
 import {
   addMemberToSheet,
-  fetchMembersFromSheet,
-  isMembersApiConfigured,
+  fetchTrashStateFromSheet,
+  markTrashActionInSheet,
   removeMemberFromSheet,
   updateMemberInSheet,
 } from '@/src/services/memberApi';
-import { loadTrashState, saveTrashState } from '@/src/services/trashStorage';
 import { scheduleTrashReminders } from '@/src/services/trashNotifications';
 import type { Member } from '@/src/types/member';
-import type { DailyTrashRecord, ForcedResponsibility, TrashAppState } from '@/src/types/trash';
-import { addBusinessDays, getDateKey, isBusinessDay } from '@/src/utils/businessDay';
+import type { DailyTrashRecord, ForcedResponsibility, TrashAction, TrashAppState } from '@/src/types/trash';
+import { getDateKey, isBusinessDay } from '@/src/utils/businessDay';
 import { sortMembersByName } from '@/src/utils/memberName';
 
 type TodayResponsibility = {
@@ -36,9 +35,9 @@ type TrashContextValue = {
   removeMember: (memberId: string) => Promise<boolean>;
   storageError?: string;
   today: TodayResponsibility;
-  markForgot: () => void;
-  markMissed: () => void;
-  markTookOutTrash: () => void;
+  markForgot: () => Promise<void>;
+  markMissed: () => Promise<void>;
+  markTookOutTrash: () => Promise<void>;
   updateMember: (member: Member) => Promise<boolean>;
 };
 
@@ -59,63 +58,14 @@ export function TrashProvider({ children }: PropsWithChildren) {
   const forgottenMemberId = useMemo(() => getForgottenMemberId(state), [state]);
 
   useEffect(() => {
-    async function loadState() {
-      try {
-        const storedState = await loadTrashState();
-        const normalizedState = normalizeState(storedState);
-        setState(normalizedState);
-
-        if (isMembersApiConfigured()) {
-          await syncMembersFromSheet(normalizedState);
-        } else {
-          await scheduleRemindersForState(normalizedState);
-        }
-      } catch {
-        setState(EMPTY_STATE);
-        setStorageError('Nao foi possivel carregar os dados salvos. Voce pode continuar usando o app.');
-      }
-    }
-
-    loadState();
+    syncRemoteState();
+    // The initial load should run once; later updates happen through explicit refresh/action calls.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  async function commitState(nextState: TrashAppState) {
-    const normalizedState = normalizeState(nextState);
-    setState(normalizedState);
-
-    try {
-      await saveTrashState(normalizedState);
-      await scheduleRemindersForState(normalizedState);
-      setStorageError(undefined);
-    } catch {
-      setStorageError('Nao foi possivel salvar os dados agora. Tente novamente em instantes.');
-    }
-  }
 
   async function addMember(member: Member) {
     try {
-      if (isMembersApiConfigured()) {
-        const syncedMembers = await addMemberToSheet(member.name);
-        const nextState = normalizeState({
-          ...state,
-          currentMemberId: state.currentMemberId ?? member.id,
-          members: syncedMembers ?? [...state.members, member],
-        });
-
-        setState(nextState);
-        await saveTrashState(nextState);
-        await scheduleRemindersForState(nextState);
-        setStorageError(undefined);
-        return true;
-      }
-
-      const nextMembers = [...state.members, member];
-
-      await commitState({
-        ...state,
-        currentMemberId: state.currentMemberId ?? member.id,
-        members: nextMembers,
-      });
+      await applyRemoteState(await addMemberToSheet(member.name));
       return true;
     } catch (error) {
       console.error('Erro ao salvar funcionario:', error);
@@ -126,16 +76,7 @@ export function TrashProvider({ children }: PropsWithChildren) {
 
   async function updateMember(updatedMember: Member) {
     try {
-      if (isMembersApiConfigured()) {
-        const syncedMembers = await updateMemberInSheet(updatedMember);
-        await replaceMembers(syncedMembers ?? updateMemberLocally(state.members, updatedMember));
-        return true;
-      }
-
-      await commitState({
-        ...state,
-        members: updateMemberLocally(state.members, updatedMember),
-      });
+      await applyRemoteState(await updateMemberInSheet(updatedMember));
       return true;
     } catch (error) {
       console.error('Erro ao editar funcionario:', error);
@@ -146,16 +87,7 @@ export function TrashProvider({ children }: PropsWithChildren) {
 
   async function removeMember(memberId: string) {
     try {
-      if (isMembersApiConfigured()) {
-        const syncedMembers = await removeMemberFromSheet(memberId);
-        await replaceMembers(syncedMembers ?? removeMemberLocally(state.members, memberId));
-        return true;
-      }
-
-      await commitState({
-        ...state,
-        members: removeMemberLocally(state.members, memberId),
-      });
+      await applyRemoteState(await removeMemberFromSheet(memberId));
       return true;
     } catch (error) {
       console.error('Erro ao remover funcionario:', error);
@@ -164,19 +96,14 @@ export function TrashProvider({ children }: PropsWithChildren) {
     }
   }
 
-  async function replaceMembers(members: Member[]) {
-    const nextState = normalizeState({
-      ...state,
-      members,
-    });
-
+  async function applyRemoteState(remoteState: TrashAppState) {
+    const nextState = normalizeState(remoteState);
     setState(nextState);
-    await saveTrashState(nextState);
     await scheduleRemindersForState(nextState);
     setStorageError(undefined);
   }
 
-  function markTookOutTrash() {
+  async function markTookOutTrash() {
     if (!today.responsible || !today.isBusinessDay) {
       return;
     }
@@ -185,105 +112,48 @@ export function TrashProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    const forcedResponsibility = getActiveForcedResponsibility(state, today.responsible.id);
-    const totalDebtDays = forcedResponsibility ? getForcedTotalDays(forcedResponsibility) : 0;
-    const completedDebtDays = forcedResponsibility ? getForcedCompletedDays(forcedResponsibility) + 1 : 0;
-    const shouldKeepForcedResponsibility = Boolean(
-      forcedResponsibility && completedDebtDays < totalDebtDays
-    );
-
-    commitState({
-      ...state,
-      currentMemberId: shouldKeepForcedResponsibility
-        ? today.responsible.id
-        : getNextMemberId(sortedMembers, today.responsible.id),
-      forcedResponsibility:
-        shouldKeepForcedResponsibility && forcedResponsibility
-          ? {
-              ...forcedResponsibility,
-              completedDays: completedDebtDays,
-              totalDays: totalDebtDays,
-            }
-          : undefined,
-      records: {
-        ...state.records,
-        [today.dateKey]: createRecord('completed', today.dateKey, today.responsible, {
-          debtProgress: forcedResponsibility
-            ? {
-                currentDay: completedDebtDays,
-                totalDays: totalDebtDays,
-              }
-            : undefined,
-        }),
-      },
-    });
+    await applyTrashActionToSheet('completed');
   }
 
-  function markMissed() {
+  async function markMissed() {
     if (!today.responsible || !today.isBusinessDay) {
       return;
     }
 
-    commitState({
-      ...state,
-      currentMemberId: getNextMemberId(sortedMembers, today.responsible.id),
-      forcedResponsibility: undefined,
-      records: {
-        ...state.records,
-        [today.dateKey]: createRecord('missed', today.dateKey, today.responsible),
-      },
-    });
+    await applyTrashActionToSheet('missed');
   }
 
-  function markForgot() {
+  async function markForgot() {
     if (!today.responsible || !today.isBusinessDay) {
       return;
     }
 
-    commitState({
-      ...state,
-      currentMemberId: today.responsible.id,
-      forcedResponsibility: {
-        completedDays: 0,
-        memberId: today.responsible.id,
-        totalDays: 2,
-        untilDate: getDateKey(addBusinessDays(new Date(), 2)),
-      },
-      records: {
-        ...state.records,
-        [today.dateKey]: createRecord('forgot', today.dateKey, today.responsible),
-      },
-    });
+    await applyTrashActionToSheet('forgot');
   }
 
   async function refreshMembers() {
-    await syncMembersFromSheet(state);
+    await syncRemoteState();
   }
 
-  async function syncMembersFromSheet(baseState: TrashAppState) {
-    if (!isMembersApiConfigured()) {
-      setStorageError('Informe a URL do Web App do Apps Script para sincronizar a planilha.');
-      return;
-    }
-
+  async function syncRemoteState() {
     setIsMembersLoading(true);
 
     try {
-      const members = await fetchMembersFromSheet();
-      const nextState = normalizeState({
-        ...baseState,
-        members,
-      });
-
-      setState(nextState);
-      await saveTrashState(nextState);
-      await scheduleRemindersForState(nextState);
-      setStorageError(undefined);
+      await applyRemoteState(await fetchTrashStateFromSheet());
     } catch (error) {
-      console.error('Erro ao atualizar funcionarios:', error);
-      setStorageError(`Nao foi possivel atualizar os funcionarios da planilha. ${getErrorMessage(error)}`);
+      console.error('Erro ao atualizar escala:', error);
+      setStorageError(`Nao foi possivel atualizar a escala da planilha. ${getErrorMessage(error)}`);
     } finally {
       setIsMembersLoading(false);
+    }
+  }
+
+  async function applyTrashActionToSheet(action: TrashAction) {
+    try {
+      await applyRemoteState(await markTrashActionInSheet(action));
+    } catch (error) {
+      console.error('Erro ao atualizar acao do lixo:', error);
+      setStorageError(`Nao foi possivel atualizar a escala na planilha. ${getErrorMessage(error)}`);
     }
   }
 
@@ -318,14 +188,6 @@ async function scheduleRemindersForState(state: TrashAppState) {
 
 function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Erro desconhecido.';
-}
-
-function updateMemberLocally(members: Member[], updatedMember: Member) {
-  return members.map((member) => (member.id === updatedMember.id ? updatedMember : member));
-}
-
-function removeMemberLocally(members: Member[], memberId: string) {
-  return members.filter((member) => member.id !== memberId);
 }
 
 export function useTrash() {
@@ -397,10 +259,6 @@ function findMemberById(members: Member[], memberId?: string) {
   return members.find((member) => member.id === memberId);
 }
 
-function getNextMemberId(members: Member[], currentMemberId: string) {
-  return getNextMember(members, currentMemberId)?.id;
-}
-
 function getNextMember(members: Member[], currentMemberId: string) {
   if (members.length === 0) {
     return undefined;
@@ -449,14 +307,6 @@ function getDebtStatus(
   };
 }
 
-function getActiveForcedResponsibility(state: TrashAppState, memberId: string) {
-  if (!state.forcedResponsibility || state.forcedResponsibility.memberId !== memberId) {
-    return undefined;
-  }
-
-  return state.forcedResponsibility;
-}
-
 function getForcedCompletedDays(forcedResponsibility: ForcedResponsibility) {
   return forcedResponsibility.completedDays ?? 0;
 }
@@ -467,21 +317,6 @@ function getForcedTotalDays(forcedResponsibility: ForcedResponsibility) {
 
 function getFirstMemberId(members: Member[]) {
   return sortMembersByName(members)[0]?.id;
-}
-
-function createRecord(
-  action: DailyTrashRecord['action'],
-  date: string,
-  member: Member,
-  options?: Pick<DailyTrashRecord, 'debtProgress'>
-): DailyTrashRecord {
-  return {
-    action,
-    date,
-    debtProgress: options?.debtProgress,
-    memberId: member.id,
-    memberName: member.name,
-  };
 }
 
 function normalizeState(state: TrashAppState): TrashAppState {
